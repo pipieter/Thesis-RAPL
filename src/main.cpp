@@ -15,7 +15,6 @@
 namespace {
 std::string json;
 std::string command;
-int status;
 } // namespace
 
 void setup(int argc, char** argv) {
@@ -38,22 +37,15 @@ void setup(int argc, char** argv) {
     }
 }
 
-void run() {
-    status = std::system(command.c_str());
-}
-
-void teardown(int _status) {
-    status = _status;
-    if (status != 0) {
-        std::cerr << "The underlying program failed." << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-}
-
 int main(int argc, char** argv) {
     setup(argc, argv);
 
     [[maybe_unused]] const auto result = benchmark::measure(command);
+
+    if (result.status != 0) {
+        std::cerr << "The underlying program failed." << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
 
     if (!(std::ofstream(json, std::ios_base::app) << glz::write_json(result) << "\n")) {
         std::cerr << "write failed" << std::endl;

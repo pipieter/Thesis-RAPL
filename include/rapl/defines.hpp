@@ -2,10 +2,6 @@
 
 #include <linux/perf_event.h>
 
-#define RAPL_BENCHMARK_RUNTIME 1
-#define RAPL_BENCHMARK_COUNTERS 1
-#define RAPL_BENCHMARK_ENERGY 1
-
 // clang-format off
 #define RAPL_BENCHMARK_COUNTERS_EVENTS {                                                                               \
         {PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_REFERENCES},                                                          \

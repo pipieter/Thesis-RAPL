@@ -16,11 +16,8 @@
 #define RAPL_BENCHMARK_RUNTIME_CLOCK std::chrono::high_resolution_clock
 #endif
 
-#if RAPL_BENCHMARK_COUNTERS
 #include <rapl/perf.hpp>
-#endif
 
-#if RAPL_BENCHMARK_ENERGY
 #include <deque>
 #include <mutex>
 #include <thread>
@@ -45,8 +42,8 @@ struct ProcessSample {
 
 struct ProcessData {
     std::vector<ProcessSample> samples;
-    int cpu_count {0};
-    double avg_cpu {0};
+    int cpu_count{0};
+    double avg_cpu{0};
 };
 
 template <>
@@ -54,22 +51,14 @@ struct glz::meta<EnergySample> {
     using T = EnergySample;
     [[maybe_unused]] static constexpr auto value = glz::object("duration_ms", &T::duration_ms, "energy", &T::energy);
 };
-#endif
 
 struct Result {
-#if RAPL_BENCHMARK_RUNTIME
+    int status;
     typename RAPL_BENCHMARK_RUNTIME_CLOCK::rep runtime_ms;
-#endif
-#if RAPL_BENCHMARK_COUNTERS
     std::vector<std::pair<std::string, std::uint64_t>> counters;
-#endif
-#if RAPL_BENCHMARK_ENERGY
     std::vector<EnergySample> energy_samples;
-#endif
     ProcessData process;
 };
-
-extern void teardown(int status);
 
 namespace benchmark {
 
@@ -77,27 +66,25 @@ inline Result measure(std::string command) {
     Result result;
 
     // Setup measurement infrastructure.
-#if RAPL_BENCHMARK_COUNTERS
+    // Counters
 #ifndef RAPL_BENCHMARK_COUNTERS_EVENTS
 #error "RAPL_BENCHMARK_COUNTERS_EVENTS must be defined."
 #endif
     const auto events = std::vector<std::pair<int, int>>(RAPL_BENCHMARK_COUNTERS_EVENTS);
     perf::Group group(events);
     group.reset();
-#endif
-#if RAPL_BENCHMARK_ENERGY
+
+    // Energy
     auto previous_energy_sample = std::vector<rapl::U32Sample>(cpu::getNPackages());
     std::mutex energy_lock;
     typename RAPL_BENCHMARK_RUNTIME_CLOCK::time_point last_energy_timestamp;
     std::deque<EnergySample> energy_samples;
-#endif
 
     std::mutex process_lock;
     typename RAPL_BENCHMARK_RUNTIME_CLOCK::time_point last_process_timestamp;
     ProcessData process;
 
     // Actually start measurements.
-#if RAPL_BENCHMARK_ENERGY
     {
         std::lock_guard<std::mutex> guard(energy_lock);
         last_energy_timestamp = RAPL_BENCHMARK_RUNTIME_CLOCK::now();
@@ -129,13 +116,8 @@ inline Result measure(std::string command) {
         }
     });
 
-#endif
-#if RAPL_BENCHMARK_COUNTERS
     group.enable();
-#endif
-#if RAPL_BENCHMARK_RUNTIME
     const auto start = RAPL_BENCHMARK_RUNTIME_CLOCK::now();
-#endif
 
     boost::process::child child(command);
     pid_t pid = child.id();
@@ -173,6 +155,7 @@ inline Result measure(std::string command) {
     });
 
     child.wait();
+    int status = child.exit_code();
 
     ScopeExit _([&] {
         energyTimer.kill();
@@ -182,13 +165,13 @@ inline Result measure(std::string command) {
     });
 
     // Stop measurements.
-#if RAPL_BENCHMARK_RUNTIME
+
     const auto end = RAPL_BENCHMARK_RUNTIME_CLOCK::now();
-#endif
-#if RAPL_BENCHMARK_COUNTERS
+
+    // End counters
     group.disable();
-#endif
-#if RAPL_BENCHMARK_ENERGY
+
+    // One final energy measurement
     std::lock_guard<std::mutex> guard(energy_lock);
     const auto now = RAPL_BENCHMARK_RUNTIME_CLOCK::now();
     const auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_energy_timestamp);
@@ -200,25 +183,18 @@ inline Result measure(std::string command) {
         previous_energy_sample.at(package) = sample;
     }
     energy_samples.emplace_back(duration_ms.count(), per_pkg_samples);
-#endif
-
-    teardown(child.exit_code());
 
     // Populate results.
-#if RAPL_BENCHMARK_RUNTIME
     result.runtime_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-#endif
-#if RAPL_BENCHMARK_COUNTERS
     result.counters.reserve(events.size());
     const auto counters = group.read();
     for (std::size_t i = 0; i < events.size(); ++i) {
         result.counters.emplace_back(perf::toString(events.at(i)), counters.at(i));
     }
-#endif
-#if RAPL_BENCHMARK_ENERGY
+
     result.energy_samples = std::vector<EnergySample>(energy_samples.begin(), energy_samples.end());
-#endif
     result.process = process;
+    result.status = status;
 
     return result;
 }
