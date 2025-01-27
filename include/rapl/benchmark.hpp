@@ -1,6 +1,7 @@
 #pragma once
 
 #include "defines.hpp"
+#include "rapl/process.hpp"
 
 #include <boost/process.hpp>
 
@@ -36,6 +37,18 @@ struct EnergySample {
         : duration_ms(duration_ms), energy(std::move(energy)) {}
 };
 
+struct ProcessSample {
+    typename RAPL_BENCHMARK_RUNTIME_CLOCK::rep duration_ms;
+    int private_memory;
+    int shared_memory;
+};
+
+struct ProcessData {
+    std::vector<ProcessSample> samples;
+    int cpu_count {0};
+    double avg_cpu {0};
+};
+
 template <>
 struct glz::meta<EnergySample> {
     using T = EnergySample;
@@ -53,6 +66,7 @@ struct Result {
 #if RAPL_BENCHMARK_ENERGY
     std::vector<EnergySample> energy_samples;
 #endif
+    ProcessData process;
 };
 
 extern void teardown(int status);
@@ -78,6 +92,10 @@ inline Result measure(std::string command) {
     std::deque<EnergySample> energy_samples;
 #endif
 
+    std::mutex process_lock;
+    typename RAPL_BENCHMARK_RUNTIME_CLOCK::time_point last_process_timestamp;
+    ProcessData process;
+
     // Actually start measurements.
 #if RAPL_BENCHMARK_ENERGY
     {
@@ -87,11 +105,12 @@ inline Result measure(std::string command) {
             previous_energy_sample.at(package) = rapl::sample(package);
         }
     }
+    last_process_timestamp = RAPL_BENCHMARK_RUNTIME_CLOCK::now();
 
-    KillableTimer timer;
-    auto subprocess = std::thread([&] {
+    KillableTimer energyTimer;
+    auto energySubprocess = std::thread([&] {
         for (;;) {
-            if (!timer.wait(std::chrono::milliseconds(RAPL_BENCHMARK_ENERGY_GRANULARITY_MS))) {
+            if (!energyTimer.wait(std::chrono::milliseconds(RAPL_BENCHMARK_ENERGY_GRANULARITY_MS))) {
                 break;
             }
 
@@ -109,10 +128,7 @@ inline Result measure(std::string command) {
             energy_samples.emplace_back(duration_ms.count(), per_pkg_samples);
         }
     });
-    ScopeExit _([&] {
-        timer.kill();
-        subprocess.join();
-    });
+
 #endif
 #if RAPL_BENCHMARK_COUNTERS
     group.enable();
@@ -122,12 +138,48 @@ inline Result measure(std::string command) {
 #endif
 
     boost::process::child child(command);
+    pid_t pid = child.id();
 
-    while (child.running()) {
-        // ...
-    }
+    KillableTimer processTimer;
+    auto processSubprocess = std::thread([&] {
+        for (;;) {
+            if (!energyTimer.wait(std::chrono::milliseconds(RAPL_BENCHMARK_PROCESS_GRANULARITY_MS))) {
+                break;
+            }
+
+            ProcessMemory memory;
+            double avg_cpu;
+
+            if (!process::getProcessMemory(pid, &memory))
+                break;
+            if (!process::getProcessAverageCpuUsage(pid, &avg_cpu))
+                break;
+
+            std::lock_guard<std::mutex> guard(process_lock);
+            const auto now = RAPL_BENCHMARK_RUNTIME_CLOCK::now();
+            const auto duration_ms
+                = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_process_timestamp);
+            last_process_timestamp = now;
+
+            ProcessSample sample;
+            sample.duration_ms = duration_ms.count();
+            sample.private_memory = memory.private_memory;
+            sample.shared_memory = memory.shared_memory;
+
+            process.samples.push_back(sample);
+            process.cpu_count = process::getCpuCount();
+            process.avg_cpu = avg_cpu;
+        }
+    });
 
     child.wait();
+
+    ScopeExit _([&] {
+        energyTimer.kill();
+        processTimer.kill();
+        energySubprocess.join();
+        processSubprocess.join();
+    });
 
     // Stop measurements.
 #if RAPL_BENCHMARK_RUNTIME
@@ -166,6 +218,7 @@ inline Result measure(std::string command) {
 #if RAPL_BENCHMARK_ENERGY
     result.energy_samples = std::vector<EnergySample>(energy_samples.begin(), energy_samples.end());
 #endif
+    result.process = process;
 
     return result;
 }
