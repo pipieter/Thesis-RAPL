@@ -1,30 +1,27 @@
 #pragma once
 
-#include "defines.hpp"
-#include "rapl/process.hpp"
-
 #include <boost/process.hpp>
-
 #include <boost/process/detail/child_decl.hpp>
+
 #include <chrono>
 #include <cstdint>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 #include <glaze/core/common.hpp>
 
+#include <rapl/cpu.hpp>
+#include <rapl/defines.hpp>
+#include <rapl/perf.hpp>
+#include <rapl/process.hpp>
+#include <rapl/rapl.hpp>
+#include <rapl/utils.hpp>
+
 #ifndef RAPL_BENCHMARK_RUNTIME_CLOCK
 #define RAPL_BENCHMARK_RUNTIME_CLOCK std::chrono::high_resolution_clock
 #endif
-
-#include <rapl/perf.hpp>
-
-#include <deque>
-#include <mutex>
-#include <thread>
-
-#include <rapl/cpu.hpp>
-#include <rapl/rapl.hpp>
-#include <rapl/utils.hpp>
 
 struct EnergySample {
     typename RAPL_BENCHMARK_RUNTIME_CLOCK::rep duration_ms;
