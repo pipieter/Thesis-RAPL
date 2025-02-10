@@ -5,6 +5,7 @@
 struct ProcessMemory {
     int private_memory;
     int shared_memory;
+    int swapped_memory;
 };
 
 namespace process {

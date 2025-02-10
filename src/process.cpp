@@ -51,17 +51,21 @@ bool process::getProcessMemory(pid_t pid, ProcessMemory *memory) {
 
   int shared_memory = 0;
   int private_memory = 0;
+  int swapped_memory = 0;
 
   while (std::getline(sstream, line)) {
     if (line.rfind("Shared_", 0) == 0) {
       shared_memory += parseSmapsRollupLine(line);
     } else if (line.rfind("Private_", 0) == 0) {
       private_memory += parseSmapsRollupLine(line);
+    } else if (line.rfind("Swap:", 0) == 0) { // Note, this doesn't include SwapPss
+      swapped_memory += parseSmapsRollupLine(line);
     }
   }
 
   memory->private_memory = private_memory;
   memory->shared_memory = shared_memory;
+  memory->swapped_memory = swapped_memory;
 
   return true;
 }

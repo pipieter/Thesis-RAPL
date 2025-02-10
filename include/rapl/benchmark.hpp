@@ -35,6 +35,7 @@ struct ProcessSample {
     typename RAPL_BENCHMARK_RUNTIME_CLOCK::rep duration_ms;
     int private_memory;
     int shared_memory;
+    int swapped_memory;
 };
 
 struct ProcessData {
@@ -144,6 +145,7 @@ inline Result measure(std::string command) {
             sample.duration_ms = duration_ms.count();
             sample.private_memory = memory.private_memory;
             sample.shared_memory = memory.shared_memory;
+            sample.swapped_memory = memory.swapped_memory;
 
             process.samples.push_back(sample);
             process.cpu_count = process::getCpuCount();
