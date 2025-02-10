@@ -82,7 +82,7 @@ bool process::getProcessAverageCpuUsage(pid_t pid, double *usage) {
     return false;
   }
 
-  fgets(buffer, 128, pipe);
+  (void)!fgets(buffer, 128, pipe);
 
   *usage = std::atof(buffer);
   return true;
